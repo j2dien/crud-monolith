@@ -1,0 +1,29 @@
+{
+  "name": "@crud/api",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./app": "./src/app.ts"
+  },
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "bun --bun x drizzle-kit generate",
+    "db:migrate": "bun src/db/migrate.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@crud/contracts": "workspace:*",
+    "@hono/bun": "1.0.0",
+    "@hono/zod-validator": "0.9.1",
+    "drizzle-orm": "0.45.3",
+    "postgres": "3.4.9",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "drizzle-kit": "0.31.11",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "crud-monolith",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "bun --cwd apps/api run dev",
+    "dev:web": "bun --cwd apps/web run dev",
+    "typecheck:api": "bun --cwd apps/api run typecheck",
+    "build": "bun --cwd apps/web run build",
+    "db:generate": "bun --cwd apps/api run db:generate",
+    "db:migrate": "bun --cwd apps/api run db:migrate"
+  }
+}
