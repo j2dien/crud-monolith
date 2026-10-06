@@ -16,5 +16,33 @@ services:
       timeout: 5s
       retries: 10
 
+  app:
+    profiles: ["full"]
+    build:
+      context: .
+      args:
+        BUN_VERSION: "${BUN_VERSION:?Set BUN_VERSION}"
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://crud_app:local_dev_password@postgres:5432/crud_app
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "const r = await fetch('http://127.0.0.1:3000/api/ready'); process.exit(r.ok ? 0 : 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
 volumes:
   postgres_data:
