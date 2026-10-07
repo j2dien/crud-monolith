@@ -26,7 +26,12 @@ async function throwApiError(response: {
 }
 
 export async function listUsers(signal?: AbortSignal) {
-  const response = await rpc.api.users.$get({}, { init: { signal } });
+  const response = await rpc.api.users.$get(
+    {
+      query: {},
+    },
+    { init: { signal } },
+  );
 
   if (response.status !== 200) {
     return throwApiError(response);

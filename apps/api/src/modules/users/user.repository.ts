@@ -16,8 +16,8 @@ const sortableColumns = {
 }
 
 export const userRepository = {
-  list(params: UsersQueryParams) {
-    const { 
+  async list(params: UsersQueryParams) {
+    const {
       page,
       pageSize,
       search,
@@ -30,12 +30,46 @@ export const userRepository = {
     const pattern = search
       ? `%${escapeLikePattern(search)}%`
       : undefined
-    
-    return db
-      .select()
-      .from(users)
-      .orderBy(desc(users.createdAt), desc(users.id))
-      .limit(100);
+
+    const filter = pattern
+      ? or(
+        ilike(users.name, pattern),
+        ilike(users.email, pattern),
+      )
+      : undefined;
+
+    const sortColumn = sortableColumns[sortBy];
+    const order = sortOrder === "asc" ? asc : desc;
+
+    const [data, countRows] = await Promise.all([
+      db
+        .select()
+        .from(users)
+        .where(filter)
+        .orderBy(
+          order(sortColumn),
+          order(users.id),
+        )
+        .limit(pageSize)
+        .offset(offset),
+
+      db
+        .select({ total: count() })
+        .from(users)
+        .where(filter),
+    ]);
+
+    const total = countRows[0]?.total ?? 0;
+
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      }
+    }
   },
 
   async findById(id: string) {
@@ -49,8 +83,16 @@ export const userRepository = {
   },
 
   async create(input: UserInput) {
-    const [user] = await db.insert(users).values(input).returning();
-    return user!;
+    const [user] = await db
+      .insert(users)
+      .values(input)
+      .returning();
+
+    if (!user) {
+      throw new Error("Insert user returned no row");
+    }
+    
+    return user;
   },
 
   async update(id: string, input: UserInput) {

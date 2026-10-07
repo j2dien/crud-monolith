@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import {
   userIdSchema,
   userInputSchema,
+  usersQuerySchema,
 } from "@crud/contracts/users";
 import { userRepository } from "./user.repository";
 
@@ -14,9 +15,11 @@ const notFound = {
 } as const;
 
 export const userRoutes = new Hono()
-  .get("/", async (c) => {
-    const data = await userRepository.list();
-    return c.json({ data }, 200);
+  .get("/", zValidator("query", usersQuerySchema), async (c) => {
+    const params = c.req.valid("query");
+    const result = await userRepository.list(params);
+    
+    return c.json(result, 200);
   })
   .get("/:id", zValidator("param", userIdSchema), async (c) => {
     const {id} = c.req.valid("param");
