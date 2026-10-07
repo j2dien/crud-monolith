@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./users": "./src/users.ts"
+    "./users": "./src/users.ts",
+    "./errors": "./src/errors.ts"
   },
   "dependencies": {
     "zod": "4.6.5"

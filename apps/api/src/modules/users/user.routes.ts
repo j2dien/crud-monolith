@@ -1,58 +1,118 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
+
 import {
   userIdSchema,
   userInputSchema,
   usersQuerySchema,
 } from "@crud/contracts/users";
+
+import {
+  apiError,
+  validationHook,
+} from "../../lib/api-error";
+
 import { userRepository } from "./user.repository";
 
-const notFound = {
-  error: {
-    code: "USER_NOT_FOUND",
-    message: "Penggguna tidak ditemukan",
-  },
-} as const;
-
 export const userRoutes = new Hono()
-  .get("/", zValidator("query", usersQuerySchema), async (c) => {
-    const params = c.req.valid("query");
-    const result = await userRepository.list(params);
-    
-    return c.json(result, 200);
-  })
-  .get("/:id", zValidator("param", userIdSchema), async (c) => {
-    const {id} = c.req.valid("param");
-    const user = await userRepository.findById(id);
+  .get(
+    "/",
+    zValidator(
+      "query",
+      usersQuerySchema,
+      validationHook,
+    ),
+    async (c) => {
+      const params = c.req.valid("query");
+      const result = await userRepository.list(params);
 
-    if (!user) return c.json(notFound, 404);
-
-    return c.json(user, 200);
-  })
-  .post("/", zValidator("json", userInputSchema), async (c) => {
-    const input = c.req.valid("json");
-    const user = await userRepository.create(input);
-
-    return c.json({ data: user }, 201);
-  })
-  .put("/:id",
-    zValidator("param", userIdSchema),
-    zValidator("json", userInputSchema),
+      return c.json(result, 200);
+    },
+  )
+  .get(
+    "/:id",
+    zValidator(
+      "param",
+      userIdSchema,
+      validationHook,
+    ),
     async (c) => {
       const { id } = c.req.valid("param");
-      const input = c.req.valid("json");
-      const user = await userRepository.update(id, input);
+      const user = await userRepository.findById(id);
 
-      if (!user) return c.json(notFound, 404);
+      if (!user) {
+        return apiError(c, 404, {
+          code: "USER_NOT_FOUND",
+          message: "Pengguna tidak ditemukan",
+        });
+      }
 
       return c.json({ data: user }, 200);
     }
-)
-  .delete("/:id", zValidator("param", userIdSchema), async (c) => {
-    const { id } = c.req.valid("param");
-    const user = await userRepository.delete(id);
+  )
+  .post(
+    "/",
+    zValidator(
+      "json",
+      userInputSchema,
+      validationHook,
+    ),
+    async (c) => {
+      const input = c.req.valid("json");
+      const user = await userRepository.create(input);
 
-    if (!user) return c.json(notFound, 404);
+      return c.json({ data: user }, 201);
+    },
+  )
+  .put(
+    "/:id",
+    zValidator(
+      "param",
+      userIdSchema,
+      validationHook,
+    ),
+    zValidator(
+      "json",
+      userInputSchema,
+      validationHook,
+    ),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const input = c.req.valid("json");
 
-    return c.json({ data: user }, 200);
-})
+      const user = await userRepository.update(
+        id,
+        input,
+      );
+
+      if (!user) {
+        return apiError(c, 404, {
+          code: "USER_NOT_FOUND",
+          message: "Pengguna tidak ditemukan",
+        });
+      }
+
+      return c.json({ data: user }, 200)
+    }
+  )
+  .delete(
+    "/:id",
+    zValidator(
+      "param",
+      userIdSchema,
+      validationHook,
+    ),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const user = await userRepository.delete(id);
+
+      if (!user) {
+        return apiError(c, 404, {
+          code: "USER_NOT_FOUND",
+          message: "Pengguna tidak ditemukan",
+        });
+      }
+
+      return c.json({ data: user }, 200);
+    },
+  );

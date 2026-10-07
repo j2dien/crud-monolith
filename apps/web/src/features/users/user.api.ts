@@ -1,29 +1,8 @@
-import { z } from "zod";
 import type { InferResponseType } from "hono/client";
 import type { UserInput, UsersQueryParams } from "@crud/contracts/users";
 import { rpc } from "@/lib/rpc";
-
+import { throwApiError } from "@/lib/api-error";
 export type User = InferResponseType<typeof rpc.api.users.$get, 200>["data"][number];
-
-const errorSchema = z.object({
-  error: z.object({
-    message: z.string(),
-  })
-})
-
-async function throwApiError(response: {
-  status: number;
-  json(): Promise<unknown>;
-}): Promise<never> {
-  const body: unknown = await response.json().catch(() => null);
-  const parsed = errorSchema.safeParse(body);
-
-  throw new Error(
-    parsed.success
-      ? parsed.data.error.message
-      : `Request gagal (${response.status})`
-  )
-}
 
 export async function listUsers(
   params: UsersQueryParams,

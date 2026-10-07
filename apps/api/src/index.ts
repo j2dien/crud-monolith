@@ -2,17 +2,13 @@ import { serveStatic } from "@hono/bun";
 import { app } from "./app";
 import { env } from "./config/env";
 import { sql } from "./db/client";
+import { apiError } from "./lib/api-error";
 
 app.all("/api/*", (c) =>
-  c.json(
-    {
-      error: {
-        code: "NOT_FOUND",
-        message: "Enpoint tidak ditemukan",
-      },
-    },
-    404,
-  ),
+  apiError(c, 404, {
+    code: "ENDPOINT_NOT_FOUND",
+    message: "Endpoint tidak ditemukan",
+  }),
 );
 
 if (env.NODE_ENV === "production") {
