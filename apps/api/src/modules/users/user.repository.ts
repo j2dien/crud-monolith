@@ -1,10 +1,36 @@
-import { desc, eq } from "drizzle-orm";
-import type { UserInput } from "@crud/contracts/users";
+import { asc, count, desc, eq, ilike, or } from "drizzle-orm";
+import type { UserInput, UsersQueryParams } from "@crud/contracts/users";
 import { db } from "../../db/client";
 import { users } from "../../db/schema";
 
+// Pada pencarian biasa, %, _, dan \ dianggap karakter literal,
+// bukan wildcard yang ditentukan pengguna.
+function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/g, "\\$&")
+}
+
+const sortableColumns = {
+  createdAt: users.createdAt,
+  name: users.name,
+  email: users.email,
+}
+
 export const userRepository = {
-  list() {
+  list(params: UsersQueryParams) {
+    const { 
+      page,
+      pageSize,
+      search,
+      sortBy,
+      sortOrder,
+    } = params;
+
+    const offset = (page - 1) * pageSize;
+
+    const pattern = search
+      ? `%${escapeLikePattern(search)}%`
+      : undefined
+    
     return db
       .select()
       .from(users)

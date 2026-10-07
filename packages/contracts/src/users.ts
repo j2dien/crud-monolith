@@ -55,3 +55,5 @@ export type PageSize = z.infer<typeof pageSizeSchema>;
 export type UserSortBy = z.infer<typeof userSortBySchema>;
 
 export type SortOrder = z.infer<typeof sortOrderSchema>;
+
+export type UsersQueryParams = z.infer<typeof usersQuerySchema>;
