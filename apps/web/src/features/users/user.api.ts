@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { InferResponseType } from "hono/client";
-import type { UserInput } from "@crud/contracts/users";
+import type { UserInput, UsersQueryParams } from "@crud/contracts/users";
 import { rpc } from "@/lib/rpc";
 
 export type User = InferResponseType<typeof rpc.api.users.$get, 200>["data"][number];
@@ -25,10 +25,21 @@ async function throwApiError(response: {
   )
 }
 
-export async function listUsers(signal?: AbortSignal) {
+export async function listUsers(
+  params: UsersQueryParams,
+  signal?: AbortSignal,
+) {
   const response = await rpc.api.users.$get(
     {
-      query: {},
+      query: {
+        page: String(params.page),
+        pageSize: String(params.pageSize),
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+        ...(params.search
+          ? { search: params.search }
+          : {}),
+      },
     },
     { init: { signal } },
   );
@@ -37,7 +48,7 @@ export async function listUsers(signal?: AbortSignal) {
     return throwApiError(response);
   }
 
-  return (await response.json()).data;
+  return response.json();
 }
 
 export async function createUser(input: UserInput) {
