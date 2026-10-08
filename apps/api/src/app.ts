@@ -6,6 +6,15 @@ import { requestId } from "hono/request-id";
 import { sql } from "./db/client";
 import { apiError } from "./lib/api-error";
 import { userRoutes } from "./modules/users/user.routes";
+import { trustedOrigin } from "./lib/trusted-origin";
+
+import {
+  authRoutes,
+} from "./modules/auth/auth.routes";
+
+import type {
+  AuthEnv,
+} from "./modules/auth/auth.middleware";
 
 function findPostgresError(error: unknown) {
   let current = error;
@@ -42,9 +51,10 @@ function findPostgresError(error: unknown) {
   return undefined;
 }
 
-export const app = new Hono()
+export const app = new Hono<AuthEnv>()
   .use("*", requestId())
   .use("*", logger())
+  .use("/api/*", trustedOrigin)
   .get("/api/health", (c) =>
     c.json({ status: "ok" }, 200),
   )
@@ -52,7 +62,10 @@ export const app = new Hono()
     try {
       await sql`select 1`;
 
-      return c.json({ status: "ready" }, 200);
+      return c.json(
+        { status: "ready" },
+        200,
+      );
     } catch {
       return c.json(
         { status: "unavailable" },
@@ -60,6 +73,7 @@ export const app = new Hono()
       );
     }
   })
+  .route("/api/auth", authRoutes)
   .route("/api/users", userRoutes);
 
 app.onError((error, c) => {

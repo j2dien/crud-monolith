@@ -14,7 +14,14 @@ import {
 
 import { userRepository } from "./user.repository";
 
-export const userRoutes = new Hono()
+import {
+  requireAdmin,
+  requireAuth,
+  type AuthEnv,
+} from "../auth/auth.middleware";
+
+export const userRoutes = new Hono<AuthEnv>()
+  .use("*", requireAuth)
   .get(
     "/",
     zValidator(
@@ -52,6 +59,7 @@ export const userRoutes = new Hono()
   )
   .post(
     "/",
+    requireAdmin,
     zValidator(
       "json",
       userInputSchema,
@@ -66,6 +74,7 @@ export const userRoutes = new Hono()
   )
   .put(
     "/:id",
+    requireAdmin,
     zValidator(
       "param",
       userIdSchema,
@@ -97,6 +106,7 @@ export const userRoutes = new Hono()
   )
   .delete(
     "/:id",
+    requireAdmin,
     zValidator(
       "param",
       userIdSchema,

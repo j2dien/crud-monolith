@@ -28,13 +28,19 @@ import {
   assertTestEnvironment,
 } from "../helpers/test-env";
 
+import { env } from "../../src/config/env";
+
+import {
+  accounts,
+} from "../../src/db/schema";
+
 const domain =
   `suite-${crypto.randomUUID()}.example.test`;
 
 const userSchema = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
   name: z.string(),
-  email: z.string().email(),
+  email: z.email(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -65,12 +71,32 @@ async function cleanupFixtures() {
     );
 }
 
+const testPassword =
+  "Only-for-local-tests-2026!";
+
+let authCookie = "";
+
+function authenticatedRequest(
+  path: string,
+  init: RequestInit = {},
+) {
+  const headers = new Headers(init.headers);
+
+  headers.set("Cookie", authCookie);
+  headers.set("Origin", env.APP_ORIGIN);
+
+  return app.request(path, {
+    ...init,
+    headers,
+  });
+}
+
 function jsonRequest(
   path: string,
   method: "POST" | "PUT",
   input: unknown,
 ) {
-  return app.request(path, {
+  return authenticatedRequest(path, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -92,7 +118,7 @@ function listRequest(
     sortOrder,
   });
 
-  return app.request(`/api/users?${query}`);
+  return authenticatedRequest(`/api/users?${query}`);
 }
 
 async function readError(
@@ -125,6 +151,45 @@ describe("Users API integration", () => {
     expect(row?.database_name).toBe(
       "crud_app_test",
     );
+
+    await db.insert(accounts).values({
+      name: "Test Administrator",
+      email: `admin@${domain}`,
+      passwordHash: await Bun.password.hash(
+        testPassword,
+        { algorithm: "argon2id" },
+      ),
+      role: "admin",
+    });
+
+    const response = await app.request(
+      "/api/auth/login",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: env.APP_ORIGIN,
+        },
+        body: JSON.stringify({
+          email: `admin@${domain}`,
+          password: testPassword,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+
+    const cookie = response.headers.get(
+      "set-cookie",
+    );
+
+    if (!cookie) {
+      throw new Error(
+        "Login did not return a session cookie",
+      );
+    }
+    
+    authCookie = cookie.split(";")[0]!;
   });
 
   beforeEach(async () => {
@@ -152,9 +217,57 @@ describe("Users API integration", () => {
   afterAll(async () => {
     try {
       await cleanupFixtures();
+
+      await db
+        .delete(accounts)
+        .where(
+          like(accounts.email, `%@${domain}`),
+        );
     } finally {
       await sql.end({ timeout: 5 });
     }
+  });
+
+  test("rejects anonymous access", async () => {
+    const response = await app.request(
+      "/api/users",
+    );
+  
+    const error = await readError(
+      response,
+      401,
+    );
+  
+    expect(error.code).toBe(
+      "UNAUTHENTICATED",
+    );
+  });
+
+  test("rejects mutation from an untrusted origin", async () => {
+    const response = await app.request(
+      "/api/users",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: authCookie,
+          Origin: "https://other.example",
+        },
+        body: JSON.stringify({
+          name: "Example User",
+          email: `blocked@${domain}`,
+        }),
+      },
+    );
+  
+    const error = await readError(
+      response,
+      403,
+    );
+  
+    expect(error.code).toBe(
+      "INVALID_ORIGIN",
+    );
   });
 
   test("creates, reads, updates, and deletes a user", async () => {
@@ -176,7 +289,7 @@ describe("Users API integration", () => {
     expect(created.name).toBe("New User");
     expect(created.email).toBe(`new@${domain}`);
 
-    const detailResponse = await app.request(
+    const detailResponse = await authenticatedRequest(
       `/api/users/${created.id}`,
     );
 
@@ -209,7 +322,7 @@ describe("Users API integration", () => {
     );
 
     // Baca kembali untuk memastikan perubahan tersimpan.
-    const rereadResponse = await app.request(
+    const rereadResponse = await authenticatedRequest(
       `/api/users/${created.id}`,
     );
 
@@ -221,14 +334,14 @@ describe("Users API integration", () => {
 
     expect(reread.name).toBe("Updated User");
 
-    const deleteResponse = await app.request(
+    const deleteResponse = await authenticatedRequest(
       `/api/users/${created.id}`,
       { method: "DELETE" },
     );
 
     expect(deleteResponse.status).toBe(200);
 
-    const missingResponse = await app.request(
+    const missingResponse = await authenticatedRequest(
       `/api/users/${created.id}`,
     );
 
@@ -288,7 +401,7 @@ describe("Users API integration", () => {
       "EMAIL_ALREADY_EXISTS",
     );
 
-    const rereadResponse = await app.request(
+    const rereadResponse = await authenticatedRequest(
       `/api/users/${target.id}`,
     );
 
@@ -418,7 +531,7 @@ describe("Users API integration", () => {
   });
 
   test("rejects invalid query parameters", async () => {
-    const response = await app.request(
+    const response = await authenticatedRequest(
       "/api/users?pageSize=15",
     );
 
@@ -434,7 +547,7 @@ describe("Users API integration", () => {
   });
 
   test("returns a standard error for malformed JSON", async () => {
-    const response = await app.request(
+    const response = await authenticatedRequest(
       "/api/users",
       {
         method: "POST",
