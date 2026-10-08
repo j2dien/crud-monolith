@@ -3,6 +3,7 @@ import { app } from "./app";
 import { env } from "./config/env";
 import { sql } from "./db/client";
 import { apiError } from "./lib/api-error";
+import { markShuttingDown } from "./lib/runtime-state";
 
 app.all("/api/*", (c) =>
   apiError(c, 404, {
@@ -27,25 +28,79 @@ if (env.NODE_ENV === "production") {
 const server = Bun.serve({
   hostname: "0.0.0.0",
   port: env.PORT,
+  development: env.NODE_ENV === "development",
   fetch: app.fetch,
 });
 
-console.log(`Server listening on port ${server.port}`);
+console.info(
+  JSON.stringify({
+    event: "server_started",
+    port: server.port,
+    environment: env.NODE_ENV,
+  }),
+);
 
-let stopping = false;
+let shutdownStarted = false;
 
-async function shutdown() {
-  if (stopping) return;
-  stopping = true;
+async function shutdown(
+  signal: "SIGINT" | "SIGTERM",
+) {
+  if (shutdownStarted) {
+    return;
+  }
 
-  await server.stop();
-  await sql.end({ timeout: 5 })
+  shutdownStarted = true;
+  markShuttingDown();
+
+  console.info(
+    JSON.stringify({
+      event: "shutdown_started",
+      signal,
+    }),
+  );
+
+  // Batas total shutdown, termasuk penutupan database.
+  const deadline = setTimeout(() => {
+    console.error(
+      JSON.stringify({
+        event: "shutdown_timeout",
+      }),
+    );
+
+    process.exit(1);
+  }, 25_000);
+
+  try {
+    await server.stop(false);
+
+    // Tutup database setelah request aktif selesai.
+    await sql.end({ timeout: 5 });
+
+    clearTimeout(deadline);
+
+    console.info(
+      JSON.stringify({
+        event: "shutdown_completed",
+      }),
+    );
+
+    process.exit(0);
+  } catch (error) {
+    clearTimeout(deadline);
+
+    console.error({
+      event: "shutdown_failed",
+      error,
+    });
+
+    process.exit(1);
+  }
 }
 
-process.on(("SIGTERM"), () => {
-  void shutdown();
-})
-
 process.on("SIGINT", () => {
-  void shutdown();
-})
+  void shutdown("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});

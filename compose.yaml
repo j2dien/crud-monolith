@@ -41,6 +41,7 @@ services:
         BUN_VERSION: "${BUN_VERSION:-1}"
     restart: unless-stopped
     init: true
+    stop_grace_period: 30s
     environment:
       NODE_ENV: production
       PORT: 3000

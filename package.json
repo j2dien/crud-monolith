@@ -2,7 +2,7 @@
   "name": "crud-monolith",
   "private": true,
   "scripts": {
-    "dev:api": "bun run --cwd apps/api dev",
+    "dev:api": "bun --watch --env-file=apps/api/.env apps/api/src/index.ts",
     "dev:web": "bun run --cwd apps/web dev",
     "typecheck:api": "bun run --cwd apps/api typecheck",
     "build": "bun run --cwd apps/web build",

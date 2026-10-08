@@ -9,7 +9,7 @@ import {
   test,
 } from "bun:test";
 import { createHash } from "node:crypto";
-import { like, eq } from "drizzle-orm";
+import { like, inArray, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -36,9 +36,14 @@ import { env } from "../../src/config/env";
 
 import {
   accounts,
+  loginAttempts,
   sessions,
   users
 } from "../../src/db/schema";
+
+import {
+  cleanupExpiredAuthData,
+} from "../../src/modules/auth/auth.maintenance";
 
 
 const userSchema = z.object({
@@ -361,6 +366,109 @@ describe("Users API integration", () => {
       await sql.end({ timeout: 5 });
     }
   });
+
+  test(
+    "maintenance menghapus data kedaluwarsa dan mempertahankan data aktif",
+    async () => {
+      const account = await createAuthAccount();
+  
+      const now = new Date();
+      const expiredAt = new Date(now.getTime() - 60_000);
+      const activeUntil = new Date(now.getTime() + 3_600_000);
+  
+      function uniqueHash() {
+        return createHash("sha256")
+          .update(crypto.randomUUID())
+          .digest("hex");
+      }
+  
+      const expiredSessionHash = uniqueHash();
+      const activeSessionHash = uniqueHash();
+  
+      const expiredAttemptKey = uniqueHash();
+      const activeAttemptKey = uniqueHash();
+  
+      try {
+        await db.insert(sessions).values([
+          {
+            tokenHash: expiredSessionHash,
+            accountId: account.id,
+            expiresAt: expiredAt,
+          },
+          {
+            tokenHash: activeSessionHash,
+            accountId: account.id,
+            expiresAt: activeUntil,
+          },
+        ]);
+  
+        await db.insert(loginAttempts).values([
+          {
+            key: expiredAttemptKey,
+            attempts: 5,
+            expiresAt: expiredAt,
+          },
+          {
+            key: activeAttemptKey,
+            attempts: 3,
+            expiresAt: activeUntil,
+          },
+        ]);
+  
+        await cleanupExpiredAuthData(now);
+  
+        const remainingSessions = await db
+          .select({ tokenHash: sessions.tokenHash })
+          .from(sessions)
+          .where(
+            inArray(sessions.tokenHash, [
+              expiredSessionHash,
+              activeSessionHash,
+            ]),
+          );
+  
+        expect(remainingSessions).toEqual([
+          { tokenHash: activeSessionHash },
+        ]);
+  
+        const remainingAttempts = await db
+          .select({
+            key: loginAttempts.key,
+            attempts: loginAttempts.attempts,
+          })
+          .from(loginAttempts)
+          .where(
+            inArray(loginAttempts.key, [
+              expiredAttemptKey,
+              activeAttemptKey,
+            ]),
+          );
+  
+        expect(remainingAttempts).toEqual([
+          {
+            key: activeAttemptKey,
+            attempts: 3,
+          },
+        ]);
+      } finally {
+        await db
+          .delete(loginAttempts)
+          .where(
+            inArray(loginAttempts.key, [
+              expiredAttemptKey,
+              activeAttemptKey,
+            ]),
+          );
+  
+        // Menghapus akun juga membersihkan session fixture
+        // melalui foreign key ON DELETE CASCADE.
+        await db
+          .delete(accounts)
+          .where(eq(accounts.id, account.id));
+      }
+    },
+    15_000,
+  );
 
   test(
     "login menolak password salah dan email yang tidak terdaftar",

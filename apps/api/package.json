@@ -16,7 +16,8 @@
       "test:integration": "bun --env-file=.env.test --preload ./tests/helpers/test-env.ts test ./tests/integration",
       "db:migrate:test": "bun --env-file=.env.test --preload ./tests/helpers/test-env.ts src/db/migrate.ts",
 
-    "auth:seed": "bun src/scripts/seed-account.ts"
+    "auth:seed": "bun src/scripts/seed-account.ts",
+    "auth:cleanup": "bun src/scripts/cleanup-auth.ts"
   },
   "dependencies": {
     "@crud/contracts": "workspace:*",
