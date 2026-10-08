@@ -8,9 +8,14 @@ import {
   spyOn,
   test,
 } from "bun:test";
-
-import { like } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { like, eq } from "drizzle-orm";
 import { z } from "zod";
+
+import {
+  accountSchema,
+  type AccountRole,
+} from "@crud/contracts/auth";
 
 import {
   apiErrorResponseSchema,
@@ -18,7 +23,6 @@ import {
 
 import { app } from "../../src/app";
 import { db, sql } from "../../src/db/client";
-import { users } from "../../src/db/schema";
 
 import {
   userRepository,
@@ -32,10 +36,10 @@ import { env } from "../../src/config/env";
 
 import {
   accounts,
+  sessions,
+  users
 } from "../../src/db/schema";
 
-const domain =
-  `suite-${crypto.randomUUID()}.example.test`;
 
 const userSchema = z.object({
   id: z.uuid(),
@@ -60,87 +64,217 @@ const listResponseSchema = z.object({
   }),
 });
 
-async function cleanupFixtures() {
-  assertTestEnvironment();
-
-  // Hanya hapus data dengan penanda suite ini.
-  await db
-    .delete(users)
-    .where(
-      like(users.email, `%@${domain}`),
-    );
-}
-
-const testPassword =
-  "Only-for-local-tests-2026!";
-
-let authCookie = "";
-
-function authenticatedRequest(
-  path: string,
-  init: RequestInit = {},
-) {
-  const headers = new Headers(init.headers);
-
-  headers.set("Cookie", authCookie);
-  headers.set("Origin", env.APP_ORIGIN);
-
-  return app.request(path, {
-    ...init,
-    headers,
-  });
-}
-
-function jsonRequest(
-  path: string,
-  method: "POST" | "PUT",
-  input: unknown,
-) {
-  return authenticatedRequest(path, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
-}
-
-function listRequest(
-  page: number,
-  sortOrder: "asc" | "desc" = "asc",
-  search: string = domain,
-) {
-  const query = new URLSearchParams({
-    page: String(page),
-    pageSize: "10",
-    search,
-    sortBy: "name",
-    sortOrder,
-  });
-
-  return authenticatedRequest(`/api/users?${query}`);
-}
-
-async function readError(
-  response: Response,
-  expectedStatus: number,
-) {
-  expect(response.status).toBe(expectedStatus);
-
-  const body = apiErrorResponseSchema.parse(
-    await response.json(),
-  );
-
-  expect(body.error.requestId).toBeTruthy();
-
-  expect(body.error.requestId).toBe(
-    response.headers.get("x-request-id") ?? undefined,
-  );
-
-  return body.error;
-}
-
 describe("Users API integration", () => {
+  const domain = `suite-${crypto.randomUUID()}.example.test`;
+
+  const allowedTestOrigin = env.APP_ORIGINS[0];
+  
+  if (!allowedTestOrigin) {
+    throw new Error("APP_ORIGINS harus berisi minimal satu origin");
+  }
+
+  // Normalisasi sekali dan gunakan untuk seluruh request tes.
+  const origin = new URL(allowedTestOrigin).origin;
+
+  async function cleanupFixtures() {
+    assertTestEnvironment();
+  
+    // Hanya hapus data dengan penanda suite ini.
+    await db
+      .delete(users)
+      .where(
+        like(users.email, `%@${domain}`),
+      );
+  }
+  
+  const testPassword =
+    "Only-for-local-tests-2026!";
+  
+  let authCookie = "";
+  
+  function authenticatedRequest(
+    path: string,
+    init: RequestInit = {},
+  ) {
+    const headers = new Headers(init.headers);
+  
+    headers.set("Cookie", authCookie);
+    headers.set("Origin", origin);
+  
+    return app.request(path, {
+      ...init,
+      headers,
+    });
+  }
+  
+  function jsonRequest(
+    path: string,
+    method: "POST" | "PUT",
+    input: unknown,
+  ) {
+    return authenticatedRequest(path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  }
+  
+  function listRequest(
+    page: number,
+    sortOrder: "asc" | "desc" = "asc",
+    search: string = domain,
+  ) {
+    const query = new URLSearchParams({
+      page: String(page),
+      pageSize: "10",
+      search,
+      sortBy: "name",
+      sortOrder,
+    });
+  
+    return authenticatedRequest(`/api/users?${query}`);
+  }
+  
+  async function readError(
+    response: Response,
+    expectedStatus: number,
+  ) {
+    expect(response.status).toBe(expectedStatus);
+  
+    const body = apiErrorResponseSchema.parse(
+      await response.json(),
+    );
+  
+    expect(body.error.requestId).toBeTruthy();
+  
+    expect(body.error.requestId).toBe(
+      response.headers.get("x-request-id") ?? undefined,
+    );
+  
+    return body.error;
+  }
+
+  const authTestPassword = "Only-for-auth-tests-2026!";
+  
+  function testOrigin() {
+    return origin;
+  }
+  
+  async function createAuthAccount(role: AccountRole = "admin") {
+    const email = `auth-${crypto.randomUUID()}@${domain}`;
+  
+    const passwordHash = await Bun.password.hash(authTestPassword, {
+      algorithm: "argon2id",
+    });
+  
+    const [row] = await db
+      .insert(accounts)
+      .values({
+        name: `Test ${role}`,
+        email,
+        passwordHash,
+        role,
+      })
+      .returning({
+        id: accounts.id,
+        name: accounts.name,
+        email: accounts.email,
+        role: accounts.role,
+      });
+  
+    if (!row) {
+      throw new Error("Gagal membuat akun tes");
+    }
+  
+    return accountSchema.parse(row);
+  }
+  
+  function requestWithCookie(
+    path: string,
+    cookie: string,
+    init: RequestInit = {},
+  ) {
+    const headers = new Headers(init.headers);
+  
+    headers.set("Cookie", cookie);
+    headers.set("Origin", testOrigin());
+  
+    return app.request(path, {
+      ...init,
+      headers,
+    });
+  }
+  
+  function loginRequest(
+    email: string,
+    password: string,
+    previousCookie?: string,
+  ) {
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      Origin: testOrigin(),
+    });
+  
+    if (previousCookie) {
+      headers.set("Cookie", previousCookie);
+    }
+  
+    return app.request("/api/auth/login", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ email, password }),
+    });
+  }
+  
+  async function loginAccount(email: string) {
+    const response = await loginRequest(email, authTestPassword);
+  
+    expect(response.status).toBe(200);
+  
+    const setCookie = response.headers.get("set-cookie");
+  
+    if (!setCookie) {
+      throw new Error("Respons login tidak mengandung cookie session");
+    }
+  
+    // Header Cookie hanya membawa nama dan nilai cookie.
+    const cookie = setCookie.split(";")[0];
+  
+    if (!cookie) {
+      throw new Error("Cookie session tidak valid");
+    }
+  
+    return { response, cookie, setCookie };
+  }
+  
+  function sessionHashFromCookie(cookie: string) {
+    const separator = cookie.indexOf("=");
+  
+    if (separator < 0) {
+      throw new Error("Format cookie tidak valid");
+    }
+  
+    const token = cookie.slice(separator + 1);
+  
+    return createHash("sha256").update(token).digest("hex");
+  }
+  
+  async function expectAuthError(
+    response: Response,
+    status: number,
+    code: string,
+  ) {
+    expect(response.status).toBe(status);
+  
+    const body = apiErrorResponseSchema.parse(await response.json());
+  
+    expect(body.error.code).toBe(code);
+  
+    return body.error;
+  }
+  
   beforeAll(async () => {
     assertTestEnvironment();
 
@@ -168,7 +302,7 @@ describe("Users API integration", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Origin: env.APP_ORIGIN,
+          Origin: origin,
         },
         body: JSON.stringify({
           email: `admin@${domain}`,
@@ -227,6 +361,281 @@ describe("Users API integration", () => {
       await sql.end({ timeout: 5 });
     }
   });
+
+  test(
+    "login menolak password salah dan email yang tidak terdaftar",
+    async () => {
+      const account = await createAuthAccount();
+  
+      const wrongPasswordResponse = await loginRequest(
+        account.email,
+        "Wrong-password-2026!",
+      );
+  
+      const unknownEmailResponse = await loginRequest(
+        `unknown-${crypto.randomUUID()}@${domain}`,
+        "Wrong-password-2026!",
+      );
+  
+      const wrongPasswordError = await expectAuthError(
+        wrongPasswordResponse,
+        401,
+        "INVALID_CREDENTIALS",
+      );
+  
+      const unknownEmailError = await expectAuthError(
+        unknownEmailResponse,
+        401,
+        "INVALID_CREDENTIALS",
+      );
+  
+      expect(wrongPasswordError.message).toBe(unknownEmailError.message);
+  
+      expect(wrongPasswordResponse.headers.get("set-cookie")).toBeNull();
+      expect(unknownEmailResponse.headers.get("set-cookie")).toBeNull();
+    },
+    15_000,
+  );
+  
+  test(
+    "login menerbitkan cookie dan me mengembalikan akun tanpa password",
+    async () => {
+      const account = await createAuthAccount();
+  
+      const { response, cookie, setCookie } = await loginAccount(
+        account.email,
+      );
+  
+      const loginBody = await response.json();
+  
+      expect(loginBody).toEqual({
+        data: account,
+      });
+  
+      expect(setCookie.toLowerCase()).toContain("httponly");
+      expect(setCookie.toLowerCase()).toContain("samesite=lax");
+      expect(setCookie.toLowerCase()).toContain("path=/");
+  
+      const meResponse = await requestWithCookie("/api/auth/me", cookie);
+  
+      expect(meResponse.status).toBe(200);
+      expect(await meResponse.json()).toEqual({
+        data: account,
+      });
+  
+      const storedSessions = await db
+        .select({ tokenHash: sessions.tokenHash })
+        .from(sessions)
+        .where(eq(sessions.tokenHash, sessionHashFromCookie(cookie)));
+  
+      expect(storedSessions).toHaveLength(1);
+    },
+    15_000,
+  );
+
+  test(
+    "logout menghapus session dan menolak penggunaan cookie lama",
+    async () => {
+      const account = await createAuthAccount();
+      const { cookie } = await loginAccount(account.email);
+  
+      const logoutResponse = await requestWithCookie(
+        "/api/auth/logout",
+        cookie,
+        { method: "POST" },
+      );
+  
+      expect(logoutResponse.status).toBe(200);
+      expect(await logoutResponse.json()).toEqual({
+        data: { success: true },
+      });
+  
+      expect(logoutResponse.headers.get("set-cookie")).not.toBeNull();
+  
+      const storedSessions = await db
+        .select({ tokenHash: sessions.tokenHash })
+        .from(sessions)
+        .where(eq(sessions.tokenHash, sessionHashFromCookie(cookie)));
+  
+      expect(storedSessions).toHaveLength(0);
+  
+      // Sengaja kirim ulang cookie lama untuk membuktikan
+      // bahwa session juga dicabut di server.
+      const meResponse = await requestWithCookie("/api/auth/me", cookie);
+  
+      expect(meResponse.status).toBe(200);
+      expect(await meResponse.json()).toEqual({ data: null });
+  
+      const usersResponse = await requestWithCookie("/api/users", cookie);
+  
+      await expectAuthError(
+        usersResponse,
+        401,
+        "UNAUTHENTICATED",
+      );
+    },
+    15_000,
+  );
+  
+  test(
+    "session kedaluwarsa tidak dapat mengakses endpoint terlindungi",
+    async () => {
+      const account = await createAuthAccount();
+      const { cookie } = await loginAccount(account.email);
+  
+      // Atur session milik tes ini menjadi sudah kedaluwarsa.
+      // Session admin yang dipakai tes CRUD lain tidak disentuh.
+      await db
+        .update(sessions)
+        .set({
+          expiresAt: new Date(Date.now() - 60_000),
+        })
+        .where(eq(sessions.tokenHash, sessionHashFromCookie(cookie)));
+  
+      const meResponse = await requestWithCookie("/api/auth/me", cookie);
+  
+      expect(meResponse.status).toBe(200);
+      expect(await meResponse.json()).toEqual({ data: null });
+  
+      const usersResponse = await requestWithCookie("/api/users", cookie);
+  
+      await expectAuthError(
+        usersResponse,
+        401,
+        "UNAUTHENTICATED",
+      );
+    },
+    15_000,
+  );
+
+  test(
+    "viewer dapat membaca tetapi tidak dapat membuat, mengubah, atau menghapus",
+    async () => {
+      const viewer = await createAuthAccount("viewer");
+      const { cookie } = await loginAccount(viewer.email);
+  
+      const [target] = await db
+        .insert(users)
+        .values({
+          name: "Authorization Target",
+          email: `target-${crypto.randomUUID()}@${domain}`,
+        })
+        .returning();
+  
+      if (!target) {
+        throw new Error("Gagal membuat target tes");
+      }
+  
+      const listResponse = await requestWithCookie("/api/users", cookie);
+  
+      expect(listResponse.status).toBe(200);
+  
+      const detailResponse = await requestWithCookie(
+        `/api/users/${target.id}`,
+        cookie,
+      );
+  
+      expect(detailResponse.status).toBe(200);
+  
+      const rejectedEmail = `rejected-${crypto.randomUUID()}@${domain}`;
+  
+      const createResponse = await requestWithCookie(
+        "/api/users",
+        cookie,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Unauthorized Create",
+            email: rejectedEmail,
+          }),
+        },
+      );
+  
+      const updateResponse = await requestWithCookie(
+        `/api/users/${target.id}`,
+        cookie,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Unauthorized Update",
+            email: target.email,
+          }),
+        },
+      );
+  
+      const deleteResponse = await requestWithCookie(
+        `/api/users/${target.id}`,
+        cookie,
+        { method: "DELETE" },
+      );
+  
+      for (const response of [
+        createResponse,
+        updateResponse,
+        deleteResponse,
+      ]) {
+        await expectAuthError(response, 403, "FORBIDDEN");
+      }
+  
+      const [unchanged] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, target.id));
+  
+      expect(unchanged).toBeDefined();
+      expect(unchanged?.name).toBe(target.name);
+      expect(unchanged?.email).toBe(target.email);
+  
+      const rejectedRows = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, rejectedEmail));
+  
+      expect(rejectedRows).toHaveLength(0);
+    },
+    15_000,
+  );
+
+  test(
+    "percobaan login keenam dalam satu window dibatasi",
+    async () => {
+      const account = await createAuthAccount();
+  
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const response = await loginRequest(
+          account.email,
+          "Wrong-password-2026!",
+        );
+  
+        await expectAuthError(
+          response,
+          401,
+          "INVALID_CREDENTIALS",
+        );
+      }
+  
+      const blockedResponse = await loginRequest(
+        account.email,
+        "Wrong-password-2026!",
+      );
+  
+      await expectAuthError(
+        blockedResponse,
+        429,
+        "TOO_MANY_LOGIN_ATTEMPTS",
+      );
+  
+      const retryAfter = Number(
+        blockedResponse.headers.get("retry-after"),
+      );
+  
+      expect(Number.isFinite(retryAfter)).toBe(true);
+      expect(retryAfter).toBeGreaterThan(0);
+    },
+    30_000,
+  );
 
   test("rejects anonymous access", async () => {
     const response = await app.request(

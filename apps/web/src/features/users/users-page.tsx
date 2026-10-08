@@ -9,6 +9,13 @@ import {
 import {
   type UsersQueryParams,
 } from "@crud/contracts/users";
+import type {
+  Account,
+} from "@crud/contracts/auth";
+
+import {
+  SessionMenu,
+} from "@/features/auth/session-menu";
 
 import { Button } from "@/components/ui/button";
 
@@ -26,6 +33,8 @@ import { UserEditor } from "./user-editor";
 import { UsersToolbar } from "./users-toolbar";
 
 type UsersPageProps = {
+  account: Account;
+
   params: UsersQueryParams;
 
   onParamsChange: (
@@ -35,9 +44,12 @@ type UsersPageProps = {
 };
 
 export function UsersPage({
+  account,
   params,
   onParamsChange,
 }: UsersPageProps) {
+  const canManage = account.role === "admin";
+
   const [editingUser, setEditingUser] =
     useState<User | null>(null);
 
@@ -102,11 +114,21 @@ export function UsersPage({
         Dashboard Pengguna
       </h1>
 
-      <UserEditor
-        key={editingUser?.id ?? "create"}
-        user={editingUser}
-        onDone={() => setEditingUser(null)}
-      />
+      <SessionMenu account={account} />
+
+      {canManage && (  
+        <UserEditor
+          key={editingUser?.id ?? "create"}
+          user={editingUser}
+          onDone={() => setEditingUser(null)}
+        />
+      )}
+
+      {!canManage && (
+        <p className="text-sm text-muted-foreground">
+          Akun Anda memiliki akses membaca data.
+        </p>
+      )}
 
       <UsersToolbar
         params={params}
@@ -200,7 +222,9 @@ export function UsersPage({
                     <tr className="border-b">
                       <th className="p-2">Nama</th>
                       <th className="p-2">Email</th>
-                      <th className="p-2">Aksi</th>
+                      {canManage && (
+                        <th className="p-2">Aksi</th>
+                      )}
                     </tr>
                   </thead>
 
@@ -219,41 +243,43 @@ export function UsersPage({
                             {user.email}
                           </td>
 
-                          <td className="p-2">
-                            <div className="flex gap-2">
-                              <Button
-                                variant="outline"
-                                disabled={actionsDisabled}
-                                onClick={() => {
-                                  setEditingUser(user);
-                                }}
-                              >
-                                Edit
-                              </Button>
+                          {canManage && (
+                            <td className="p-2">
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  disabled={actionsDisabled}
+                                  onClick={() => {
+                                    setEditingUser(user);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
 
-                              <Button
-                                variant="destructive"
-                                disabled={
-                                  actionsDisabled ||
-                                  editingUser?.id ===
+                                <Button
+                                  variant="destructive"
+                                  disabled={
+                                    actionsDisabled ||
+                                    editingUser?.id ===
                                     user.id
-                                }
-                                onClick={() => {
-                                  if (
-                                    window.confirm(
-                                      `Hapus ${user.name}?`,
-                                    )
-                                  ) {
-                                    deletion.mutate(
-                                      user.id,
-                                    );
                                   }
-                                }}
-                              >
-                                Hapus
-                              </Button>
-                            </div>
-                          </td>
+                                  onClick={() => {
+                                    if (
+                                      window.confirm(
+                                        `Hapus ${user.name}?`,
+                                      )
+                                    ) {
+                                      deletion.mutate(
+                                        user.id,
+                                      );
+                                    }
+                                  }}
+                                >
+                                  Hapus
+                                </Button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ),
                     )}

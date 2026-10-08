@@ -31,6 +31,11 @@ export async function renderUsersRoute(
   const router = createRouter({
     routeTree,
     history,
+  
+    context: {
+      queryClient,
+    },
+  
     defaultPendingMs: 0,
     defaultPendingMinMs: 0,
   });

@@ -38,7 +38,7 @@ services:
     build:
       context: .
       args:
-        BUN_VERSION: "${BUN_VERSION:?Set BUN_VERSION}"
+        BUN_VERSION: "${BUN_VERSION:-1}"
     restart: unless-stopped
     init: true
     environment:

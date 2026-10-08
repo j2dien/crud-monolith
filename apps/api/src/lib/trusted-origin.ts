@@ -24,13 +24,13 @@ export const trustedOrigin =
         const origin =
           c.req.header("Origin");
 
-        if (origin !== env.APP_ORIGIN) {
+        if (!origin || !env.APP_ORIGINS.includes(origin)) {
           return apiError(c, 403, {
             code: "INVALID_ORIGIN",
-            message:
-              "Origin request tidak diizinkan",
+            message: "Origin request tidak diizinkan",
           });
         }
+
       }
 
       await next();

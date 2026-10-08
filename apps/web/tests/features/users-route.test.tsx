@@ -18,10 +18,19 @@ import {
   listUsers,
   type User,
 } from "@/features/users/user.api";
+import {
+  getCurrentAccount,
+} from "@/features/auth/auth.api";
 
 import {
   renderUsersRoute,
 } from "../helpers/render-router";
+
+vi.mock("@/features/auth/auth.api", () => ({
+  getCurrentAccount: vi.fn(),
+  login: vi.fn(),
+  logout: vi.fn(),
+}));
 
 vi.mock("@/features/users/user.api", () => ({
   createUser: vi.fn(),
@@ -34,6 +43,13 @@ let availableUsers: User[];
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(getCurrentAccount)
+    .mockResolvedValue({
+      id: "00000000-0000-4000-8000-000000000002",
+      name: "Test Administrator",
+      email: "admin@example.com",
+      role: "admin",
+    });
 
   availableUsers = Array.from(
     { length: 11 },
