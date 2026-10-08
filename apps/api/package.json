@@ -11,7 +11,10 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "bun --bun x drizzle-kit generate",
     "db:migrate": "bun src/db/migrate.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "test:unit": "bun --no-env-file test ./tests/unit",
+      "test:integration": "bun --env-file=.env.test --preload ./tests/helpers/test-env.ts test ./tests/integration",
+      "db:migrate:test": "bun --env-file=.env.test --preload ./tests/helpers/test-env.ts src/db/migrate.ts"
   },
   "dependencies": {
     "@crud/contracts": "workspace:*",
