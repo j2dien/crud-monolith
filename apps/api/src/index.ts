@@ -5,6 +5,14 @@ import { sql } from "./db/client";
 import { apiError } from "./lib/api-error";
 import { markShuttingDown } from "./lib/runtime-state";
 
+// Endpoint API yang tidak ditemukan harus tetap menghasilkan JSON.
+app.all("/api", (c) =>
+  apiError(c, 404, {
+    code: "ENDPOINT_NOT_FOUND",
+    message: "Endpoint tidak ditemukan",
+  }),
+);
+
 app.all("/api/*", (c) =>
   apiError(c, 404, {
     code: "ENDPOINT_NOT_FOUND",
@@ -13,17 +21,45 @@ app.all("/api/*", (c) =>
 );
 
 if (env.NODE_ENV === "production") {
-  app.get("*", serveStatic({ root: "../web/dist" }));
+  // Asset Vite memiliki nama dengan hash.
+  app.get(
+    "/assets/*",
+    serveStatic({
+      root: "../web/dist",
+      onFound: (_path, c) => {
+        c.header(
+          "Cache-Control",
+          "public, max-age=31536000, immutable",
+        );
+      },
+    }),
+  );
 
-  app.get("*", async (c) => {
-    // Asset yang hilang harus 404, bukan menerima HTML.
-    if (c.req.path.startsWith("/assets/")) {
-      return c.notFound();
-    }
+  // Asset yang hilang tidak boleh mendapatkan index.html.
+  app.get("/assets/*", (c) => c.notFound());
 
-    return serveStatic({ path: "../web/dist/index.html" })(c, async () => {});
-  });
-}
+  // File publik dan index.html harus dapat diperiksa ulang browser.
+  app.get(
+    "*",
+    serveStatic({
+      root: "../web/dist",
+      onFound: (_path, c) => {
+        c.header("Cache-Control", "no-cache");
+      },
+    }),
+  );
+
+  // Route SPA, misalnya /login, diselesaikan oleh TanStack Router.
+  app.get(
+    "*",
+    serveStatic({
+      path: "../web/dist/index.html",
+      onFound: (_path, c) => {
+        c.header("Cache-Control", "no-cache");
+      },
+    }),
+  );
+}  
 
 const server = Bun.serve({
   hostname: "0.0.0.0",
